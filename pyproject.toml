@@ -4,3 +4,12 @@ version = "0.1.0"
 description = "Programmatic control of Holy Stone HS720 drone via Raspberry Pi relay"
 requires-python = ">=3.12"
 dependencies = []
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.37.4",
+]
+
+[tool.basedpyright]
+exclude = ["research/", ".venv/"]
+typeCheckingMode = "standard"

@@ -7,7 +7,7 @@ import struct
 
 
 class LogCheck:
-    def __init__(self, data: bytes = None):
+    def __init__(self, data: bytes | None = None):
         if data and len(data) >= 24:
             self.key0, self.key1, self.ck_app, self.ck_dev = struct.unpack_from('<QQII', data)
         else:

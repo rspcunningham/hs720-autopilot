@@ -181,6 +181,7 @@ class DroneRelay:
 
     def _do_ready(self):
         """Relay data between drone and clients."""
+        assert self._drone_sock is not None
         self._drone_sock.settimeout(2)
         buf = b""
         while self._running and self.state == RelayState.READY:
@@ -242,6 +243,7 @@ class DroneRelay:
 
         log_encode_key(0, 1, ck, user_id, self._key_table)
         frame = gol_wrap(ck.to_bytes(), GOL_AUTH_RESPONSE)
+        assert self._drone_sock is not None
         self._drone_sock.sendall(frame)
 
         data = self._recv_until_gol()
@@ -255,9 +257,11 @@ class DroneRelay:
 
     def _init_sequence(self):
         """Post-auth init matching the app's startup sequence."""
+        assert self._drone_sock is not None
+        sock = self._drone_sock
         def send(payload, cmd_id):
             frame = gol_wrap(payload, cmd_id)
-            self._drone_sock.sendall(frame)
+            sock.sendall(frame)
             time.sleep(0.05)
 
         send(b"\x00", GOL_DEV_INFO)
@@ -276,6 +280,7 @@ class DroneRelay:
         log.info("Init sequence complete")
 
     def _recv_until_gol(self, timeout=10.0):
+        assert self._drone_sock is not None
         self._drone_sock.settimeout(timeout)
         buf = b""
         deadline = time.time() + timeout

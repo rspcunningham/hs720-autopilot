@@ -18,7 +18,7 @@ from .telemetry import FlightState, parse_telemetry
 
 class Connection:
     def __init__(self, host: str = "pi1.local", port: int = 4900,
-                 logger: FlightLogger = None):
+                 logger: FlightLogger | None = None):
         self.host = host
         self.port = port
         self.logger = logger
@@ -81,7 +81,7 @@ class Connection:
             self.logger.log("disconnect")
         print("[*] Disconnected from relay")
 
-    def send_gol(self, payload: bytes, cmd_id: int, rwbit: int = None):
+    def send_gol(self, payload: bytes, cmd_id: int, rwbit: int | None = None):
         """Send a GOL frame through the relay to the drone."""
         if not self._sock:
             return

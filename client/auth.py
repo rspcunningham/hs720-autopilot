@@ -11,7 +11,7 @@ from pathlib import Path
 class LogCheck:
     """logCheck_t: 24-byte challenge structure."""
 
-    def __init__(self, data: bytes = None):
+    def __init__(self, data: bytes | None = None):
         if data and len(data) >= 24:
             self.key0, self.key1, self.ck_app, self.ck_dev = struct.unpack_from('<QQII', data)
         else:
@@ -50,7 +50,7 @@ class LogCheck:
                 f"CkApp=0x{self.ck_app:08x}, CkDev=0x{self.ck_dev:08x})")
 
 
-def load_key_table(filepath: str = None) -> list:
+def load_key_table(filepath: str | None = None) -> list[int]:
     if filepath is None:
         filepath = str(Path(__file__).parent / "keytable.bin")
     with open(filepath, 'rb') as f:

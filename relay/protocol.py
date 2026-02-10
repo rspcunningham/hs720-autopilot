@@ -30,7 +30,7 @@ GOL_RWBIT = {
 }
 
 
-def gol_wrap(payload: bytes, cmd_id: int, rwbit: int = None) -> bytes:
+def gol_wrap(payload: bytes, cmd_id: int, rwbit: int | None = None) -> bytes:
     if rwbit is None:
         rwbit = GOL_RWBIT.get(cmd_id, 0)
     frame = bytearray()

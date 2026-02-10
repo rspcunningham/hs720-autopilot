@@ -12,7 +12,7 @@ from .logger import FlightLogger
 
 class VideoReceiver:
     def __init__(self, host: str = "pi1.local", port: int = 4901,
-                 logger: FlightLogger = None):
+                 logger: FlightLogger | None = None):
         self.host = host
         self.port = port
         self.logger = logger
@@ -39,7 +39,7 @@ class VideoReceiver:
                 "first_bytes": self._first_bytes.hex() if self._first_bytes else "",
             }
 
-    def start(self, save_path: str = None):
+    def start(self, save_path: str | None = None):
         """Register with relay for video and start receiving."""
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

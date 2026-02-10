@@ -200,7 +200,8 @@ class Dashboard:
     def _stop_ffmpeg(self):
         if self._ffmpeg:
             try:
-                self._ffmpeg.stdin.close()
+                if self._ffmpeg.stdin:
+                    self._ffmpeg.stdin.close()
             except Exception:
                 pass
             try:
@@ -215,6 +216,7 @@ class Dashboard:
 
     def _ffmpeg_stderr(self):
         """Drain ffmpeg stderr to prevent pipe deadlock."""
+        assert self._ffmpeg and self._ffmpeg.stderr
         for line in self._ffmpeg.stderr:
             text = line.decode(errors="replace").strip()
             if text:
@@ -222,6 +224,7 @@ class Dashboard:
 
     def _ffmpeg_reader(self):
         """Read fMP4 from ffmpeg stdout. Capture init segment, then fan out."""
+        assert self._ffmpeg and self._ffmpeg.stdout
         stdout = self._ffmpeg.stdout
         buf = b""
         init_captured = False
@@ -256,7 +259,7 @@ class Dashboard:
 
 def _make_handler(dash: Dashboard):
     class Handler(BaseHTTPRequestHandler):
-        def log_message(self, fmt, *args):
+        def log_message(self, format: str, /, *args: object) -> None:  # type: ignore[override]
             pass
 
         def do_GET(self):
