@@ -1,12 +1,14 @@
 """Live drone dashboard — open http://localhost:8080 immediately, connect in background."""
 
+import sys
 import threading
 from client import Connection, VideoReceiver, FlightLogger, Dashboard
 
 logger = FlightLogger("logs/dashboard.jsonl")
 
-conn = Connection("pi1.local", logger=logger)
-video = VideoReceiver("pi1.local", logger=logger)
+host = sys.argv[1] if len(sys.argv) > 1 else "pi1.local"
+conn = Connection(host, logger=logger)
+video = VideoReceiver(host, logger=logger)
 
 # Dashboard serves immediately — shows connection state as it progresses
 dash = Dashboard(conn, video)

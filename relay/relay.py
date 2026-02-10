@@ -39,17 +39,17 @@ from protocol import (
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 KEYTABLE_PATH = os.path.join(BASE_DIR, "keytable.bin")
 
-DRONE_SSID = "HolyStoneFPV-4bc278D"
-DRONE_IP = "172.16.11.1"
-DRONE_TCP_PORT = 18000
-DRONE_VIDEO_PORT = 16000
-DRONE_SERIAL_PORT = 17000
+DRONE_SSID = os.environ.get("DRONE_SSID", "HolyStoneFPV-4bc278D")
+DRONE_IP = os.environ.get("DRONE_IP", "172.16.11.1")
+DRONE_TCP_PORT = 18000   # protocol constant
+DRONE_VIDEO_PORT = 16000  # protocol constant
+DRONE_SERIAL_PORT = 17000  # protocol constant
 
-RELAY_TCP_PORT = 4900
-RELAY_VIDEO_PORT = 4901
-RELAY_SERIAL_PORT = 4902
+RELAY_TCP_PORT = int(os.environ.get("RELAY_TCP_PORT", "4900"))
+RELAY_VIDEO_PORT = int(os.environ.get("RELAY_VIDEO_PORT", "4901"))
+RELAY_SERIAL_PORT = int(os.environ.get("RELAY_SERIAL_PORT", "4902"))
 
-WIFI_IFACE = "wlan0"
+WIFI_IFACE = os.environ.get("WIFI_IFACE", "wlan0")
 SCAN_INTERVAL = 5
 VIDEO_CLIENT_TIMEOUT = 30
 

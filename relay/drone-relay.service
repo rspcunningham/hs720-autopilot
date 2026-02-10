@@ -5,6 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+EnvironmentFile=/opt/drone-relay/relay.env
 ExecStart=/usr/bin/python3 /opt/drone-relay/relay.py
 WorkingDirectory=/opt/drone-relay
 Restart=always
