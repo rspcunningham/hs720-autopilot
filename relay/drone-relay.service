@@ -1,0 +1,16 @@
+[Unit]
+Description=Drone Relay Service
+After=network-online.target NetworkManager.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/drone-relay/relay.py
+WorkingDirectory=/opt/drone-relay
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,6 @@
+[project]
+name = "drone"
+version = "0.1.0"
+description = "Programmatic control of Holy Stone HS720 drone via Raspberry Pi relay"
+requires-python = ">=3.12"
+dependencies = []

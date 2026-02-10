@@ -1,0 +1,14 @@
+# Runtime
+logs/*.jsonl
+logs/*.raw
+__pycache__/
+.venv/
+
+# Heavy research artifacts (keep locally, not in git)
+research/captures/*.pcap
+research/apk-decompiled/resources/
+research/apk-decompiled/sources/
+*.apk
+
+# IDE / tools
+.claude/

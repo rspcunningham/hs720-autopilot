@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HS720 Drone Dashboard</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0a0a0f;
+    --surface: #13131a;
+    --border: #1e1e2a;
+    --text: #e0e0e8;
+    --text-dim: #6a6a7a;
+    --accent: #4a9eff;
+    --green: #34d399;
+    --yellow: #fbbf24;
+    --red: #f87171;
+  }
+  body {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar h1 {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .relay-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .relay-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--red);
+    transition: background 0.3s;
+  }
+  .relay-dot.ready { background: var(--green); }
+  .relay-dot.connecting, .relay-dot.wifi_connecting, .relay-dot.drone_connecting {
+    background: var(--yellow);
+  }
+  .main {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    height: calc(100vh - 49px);
+  }
+  .video-panel {
+    position: relative;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .video-panel video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  .video-overlay {
+    position: absolute;
+    color: var(--text-dim);
+    font-size: 13px;
+    pointer-events: none;
+  }
+  .video-overlay.hidden { display: none; }
+  .gateway-banner {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 10px 20px;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: center;
+    z-index: 10;
+    pointer-events: none;
+    transition: opacity 0.3s;
+    opacity: 0;
+  }
+  .gateway-banner.visible { opacity: 1; }
+  .gateway-banner.scanning {
+    background: rgba(248, 113, 113, 0.9);
+    color: #fff;
+  }
+  .gateway-banner.wifi_connecting,
+  .gateway-banner.drone_connecting {
+    background: rgba(251, 191, 36, 0.85);
+    color: #000;
+  }
+  .telemetry-panel {
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    padding: 20px;
+    overflow-y: auto;
+  }
+  .telem-section { margin-bottom: 20px; }
+  .telem-section h2 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .telem-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .telem-item {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+  .telem-item.wide { grid-column: span 2; }
+  .telem-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+  }
+  .telem-value {
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 1.2;
+  }
+  .telem-unit {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--text-dim);
+    margin-left: 2px;
+  }
+  .battery-good { color: var(--green); }
+  .battery-warn { color: var(--yellow); }
+  .battery-low { color: var(--red); }
+  .mode-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    background: rgba(74, 158, 255, 0.15);
+    color: var(--accent);
+  }
+  .mode-badge.flying {
+    background: rgba(52, 211, 153, 0.15);
+    color: var(--green);
+  }
+  .telemetry-panel.stale .telem-value,
+  .telemetry-panel.stale .mode-badge { opacity: 0.35; }
+  .last-update {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-align: center;
+    margin-top: 16px;
+    transition: color 0.3s;
+  }
+  .last-update.stale { color: var(--yellow); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>HS720 Dashboard</h1>
+  <div class="relay-status">
+    <div class="relay-dot" id="relay-dot"></div>
+    <span id="relay-text">Connecting...</span>
+  </div>
+</div>
+
+<div class="main">
+  <div class="video-panel">
+    <span class="video-overlay" id="video-overlay">No video feed</span>
+    <div class="gateway-banner" id="gateway-banner"></div>
+    <video id="video-feed" autoplay muted playsinline></video>
+  </div>
+
+  <div class="telemetry-panel">
+    <div class="telem-section">
+      <h2>Flight Mode</h2>
+      <div class="mode-badge" id="mode">--</div>
+    </div>
+
+    <div class="telem-section">
+      <h2>Attitude</h2>
+      <div class="telem-grid">
+        <div class="telem-item">
+          <div class="telem-label">Altitude</div>
+          <div class="telem-value"><span id="altitude">--</span><span class="telem-unit">m</span></div>
+        </div>
+        <div class="telem-item">
+          <div class="telem-label">Distance</div>
+          <div class="telem-value"><span id="distance">--</span><span class="telem-unit">m</span></div>
+        </div>
+        <div class="telem-item">
+          <div class="telem-label">Speed</div>
+          <div class="telem-value"><span id="speed">--</span><span class="telem-unit">m/s</span></div>
+        </div>
+        <div class="telem-item">
+          <div class="telem-label">Yaw</div>
+          <div class="telem-value"><span id="yaw">--</span><span class="telem-unit">&deg;</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="telem-section">
+      <h2>Battery</h2>
+      <div class="telem-grid">
+        <div class="telem-item wide">
+          <div class="telem-label">Voltage</div>
+          <div class="telem-value" id="voltage-wrap"><span id="voltage">--</span><span class="telem-unit">V</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="telem-section">
+      <h2>GPS</h2>
+      <div class="telem-grid">
+        <div class="telem-item">
+          <div class="telem-label">Satellites</div>
+          <div class="telem-value"><span id="satellites">--</span></div>
+        </div>
+        <div class="telem-item">
+          <div class="telem-label">Latitude</div>
+          <div class="telem-value" style="font-size:14px"><span id="lat">--</span></div>
+        </div>
+        <div class="telem-item">
+          <div class="telem-label">Longitude</div>
+          <div class="telem-value" style="font-size:14px"><span id="lon">--</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="last-update">Last update: <span id="last-update">--</span></div>
+  </div>
+</div>
+
+<script>
+// ---- State (single source of truth) ----
+const state = {
+  relay: 'unknown',    // gateway relay state
+  sse: true,           // SSE connected
+  telemetry: null,     // latest telemetry object, or null
+  telemetryAt: 0,      // Date.now() of last telemetry
+  videoActive: false,   // MSE is receiving frames
+};
+
+const GATEWAY_LABELS = {
+  scanning:          'Gateway scanning for drone WiFi...',
+  wifi_connecting:   'Gateway connecting to drone WiFi...',
+  drone_connecting:  'Gateway authenticating with drone...',
+};
+
+// ---- Derived state + render ----
+function droneConnected() { return state.relay === 'ready'; }
+
+function telemetryStale() {
+  if (!droneConnected()) return true;
+  if (!state.telemetryAt) return false;
+  return Date.now() - state.telemetryAt > 3000;
+}
+
+const $ = (id) => document.getElementById(id);
+
+function render() {
+  // Relay status
+  $('relay-dot').className = 'relay-dot ' + state.relay;
+  $('relay-text').textContent = state.sse ? state.relay : 'SSE disconnected';
+
+  // Gateway banner
+  const banner = $('gateway-banner');
+  if (!droneConnected()) {
+    banner.textContent = GATEWAY_LABELS[state.relay] || 'Gateway: ' + state.relay;
+    banner.className = 'gateway-banner visible ' + state.relay;
+  } else {
+    banner.className = 'gateway-banner';
+  }
+
+  // Video overlay
+  const overlay = $('video-overlay');
+  if (state.videoActive) {
+    overlay.classList.add('hidden');
+  } else {
+    overlay.classList.remove('hidden');
+    overlay.textContent = droneConnected() ? 'Waiting for video...' : 'No video feed';
+  }
+
+  // Telemetry staleness
+  const stale = telemetryStale();
+  document.querySelector('.telemetry-panel').classList.toggle('stale', stale);
+  const lastEl = $('last-update');
+  lastEl.classList.toggle('stale', stale);
+  if (!state.telemetryAt) {
+    lastEl.textContent = '--';
+  } else if (stale) {
+    lastEl.textContent = Math.round((Date.now() - state.telemetryAt) / 1000) + 's ago';
+  }
+
+  // Telemetry values
+  const t = state.telemetry;
+  if (t) {
+    const mode = $('mode');
+    mode.textContent = t.mode_name;
+    mode.className = 'mode-badge' + (t.flying ? ' flying' : '');
+    $('altitude').textContent = t.altitude;
+    $('distance').textContent = t.distance;
+    $('speed').textContent = t.speed.toFixed(1);
+    $('yaw').textContent = t.yaw;
+    $('voltage').textContent = t.voltage.toFixed(1);
+    $('voltage-wrap').className = 'telem-value ' + (
+      t.voltage > 7 ? 'battery-good' : t.voltage > 6.5 ? 'battery-warn' : 'battery-low');
+    $('satellites').textContent = t.satellites;
+    $('lat').textContent = t.lat ? t.lat.toFixed(7) : '--';
+    $('lon').textContent = t.lon ? t.lon.toFixed(7) : '--';
+  }
+}
+
+// ---- Events (update state, then render) ----
+const es = new EventSource('/telemetry');
+
+es.onmessage = function(e) {
+  state.telemetry = JSON.parse(e.data);
+  state.telemetryAt = Date.now();
+  $('last-update').textContent = new Date().toLocaleTimeString();
+  render();
+};
+
+es.addEventListener('relay', function(e) {
+  state.relay = JSON.parse(e.data).state || 'unknown';
+  render();
+});
+
+es.onerror = function() { state.sse = false; render(); };
+es.onopen  = function() { state.sse = true;  render(); };
+
+// Tick for staleness counter
+setInterval(render, 1000);
+
+// Initial render (default state)
+render();
+
+// ---- H.264 Video via MSE ----
+(async function() {
+  if (!window.MediaSource) {
+    $('video-overlay').textContent = 'MediaSource not supported';
+    return;
+  }
+
+  let codec = 'avc1.42E01E';
+  try {
+    const s = await fetch('/status').then(r => r.json());
+    if (s.codec) codec = s.codec;
+  } catch(e) {}
+
+  let mime = 'video/mp4; codecs="' + codec + '"';
+  if (!MediaSource.isTypeSupported(mime)) {
+    for (const c of ['avc1.42E01E','avc1.42001E','avc1.4D401E','avc1.64001E','avc1.640029']) {
+      const t = 'video/mp4; codecs="' + c + '"';
+      if (MediaSource.isTypeSupported(t)) { mime = t; break; }
+    }
+  }
+
+  const video = $('video-feed');
+  const ms = new MediaSource();
+  video.src = URL.createObjectURL(ms);
+  await new Promise(r => ms.addEventListener('sourceopen', r, {once: true}));
+
+  const sb = ms.addSourceBuffer(mime);
+  sb.mode = 'segments';
+
+  const response = await fetch('/video');
+  const reader = response.body.getReader();
+
+  state.videoActive = true;
+  render();
+
+  const pending = [];
+  let appending = false;
+
+  function tryAppend() {
+    if (appending || pending.length === 0 || sb.updating) return;
+    let total = 0;
+    for (const c of pending) total += c.length;
+    const merged = new Uint8Array(total);
+    let off = 0;
+    for (const c of pending) { merged.set(c, off); off += c.length; }
+    pending.length = 0;
+    appending = true;
+    try { sb.appendBuffer(merged); }
+    catch (e) { console.error('appendBuffer:', e); appending = false; }
+  }
+
+  sb.addEventListener('updateend', () => {
+    appending = false;
+    if (!sb.updating && sb.buffered.length > 0) {
+      const start = sb.buffered.start(0);
+      const end = sb.buffered.end(sb.buffered.length - 1);
+      if (end - start > 15) {
+        try { sb.remove(start, end - 5); return; } catch(e) {}
+      }
+    }
+    tryAppend();
+  });
+
+  // Live edge tracking
+  setInterval(() => {
+    if (sb.buffered.length > 0 && !video.seeking) {
+      const live = sb.buffered.end(sb.buffered.length - 1);
+      if (live - video.currentTime > 2) video.currentTime = live - 0.3;
+    }
+  }, 1000);
+
+  while (true) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    pending.push(value);
+    tryAppend();
+  }
+
+  state.videoActive = false;
+  render();
+})();
+</script>
+
+</body>
+</html>
