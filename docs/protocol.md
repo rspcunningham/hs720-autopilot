@@ -192,17 +192,59 @@ After DevCtlPower=1, the drone pushes telemetry at ~2Hz:
 
 ### GPSInFo Telemetry Fields (0xAA MsgId 0x01, 31 bytes)
 
+Source: decompiled `lxMjxRule.GpsInFo.init()` in Ophelia GO APK.
+
 | Offset | Size | Field | Notes |
 |--------|------|-------|-------|
-| 4-7 | int32 LE | Longitude | Divide by 10,000,000 for degrees |
-| 8-11 | int32 LE | Latitude | Divide by 10,000,000 for degrees |
+| 4-7 | int32 LE | Longitude | Divide by 1e7 for degrees |
+| 8-11 | int32 LE | Latitude | Divide by 1e7 for degrees |
 | 12-13 | int16 LE | Altitude | Meters |
 | 14-15 | int16 LE | Distance | Meters from home |
+| 16 | uint8 | Return altitude | RTH hover altitude (m) |
+| 17 | uint8 | Fence altitude | Geofence max altitude (m) |
+| 18-19 | int16 LE | Fence distance | Geofence radius (m) |
+| 20 | uint8 | Circle radius | Orbit mode radius |
 | 21 | uint8 | Flight mode | See flight mode table |
 | 22 | uint8 | Voltage | Divide by 10 for volts |
-| 23 | uint8 | Satellites | Mask with 0x1F |
-| 26 | uint8 | Speed | Divide by 10 |
+| 23 | uint8 | Satellites + flags | `& 0x1F` = sat count, bit 6 = return point set |
+| 24 | uint8 | Status 1 | Bitfield (see below) |
+| 25 | uint8 | Signal | Bitfield (see below) |
+| 26 | uint8 | Speed | Divide by 10 for m/s |
+| 27 | uint8 | Status 2 | Bitfield (see below) |
 | 28-29 | int16 LE | Yaw | Heading in degrees |
+
+#### Status 1 bitfield (offset 24)
+
+| Bit | Mask | Field |
+|-----|------|-------|
+| 0 | 0x01 | Low battery warning |
+| 1 | 0x02 | Critical battery warning |
+| 2 | 0x04 | Return-to-home active |
+| 3 | 0x08 | System initialized |
+| 4 | 0x10 | Gyroscope error |
+| 5 | 0x20 | Barometer error |
+| 6 | 0x40 | Compass error |
+| 7 | 0x80 | GPS error |
+
+#### Signal bitfield (offset 25)
+
+| Bits | Mask | Field |
+|------|------|-------|
+| 0-2 | 0x07 | Control source (0-7) |
+| 3 | 0x08 | App control flag |
+| 4-6 | 0x70 | Signal strength (0-7) |
+
+#### Status 2 bitfield (offset 27)
+
+| Bit | Mask | Field |
+|-----|------|-------|
+| 0 | 0x01 | Optical flow error |
+| 1 | 0x02 | Ultrasonic error |
+| 2 | 0x04 | Optical flow enabled |
+| 3 | 0x08 | Ultrasonic enabled |
+| 4 | 0x10 | LED light on |
+| 5 | 0x20 | Headless mode |
+| 6-7 | 0xC0 | Recording mode (bit 6 = recording, bit 7 = ultrasonic+recording) |
 
 ### IFrame Request (0x20002) — Used During Flight
 

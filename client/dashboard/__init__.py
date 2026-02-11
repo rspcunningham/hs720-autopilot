@@ -138,6 +138,17 @@ class Dashboard:
         d = asdict(state)
         d["mode_name"] = state.mode_name
         d["flying"] = state.flying
+        d["signal_strength"] = state.signal_strength
+        d["app_control"] = state.app_control
+        d["low_battery"] = state.low_battery
+        d["critical_battery"] = state.critical_battery
+        d["initialized"] = state.initialized
+        d["gyro_error"] = state.gyro_error
+        d["baro_error"] = state.baro_error
+        d["compass_error"] = state.compass_error
+        d["gps_error"] = state.gps_error
+        d["headless"] = state.headless
+        d["recording"] = state.recording
         self._latest_telemetry = d
         self._push_sse(f"data: {json.dumps(d)}\n\n")
         if self._orig_on_telemetry:

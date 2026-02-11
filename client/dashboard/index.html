@@ -163,6 +163,45 @@
   .battery-good { color: var(--green); }
   .battery-warn { color: var(--yellow); }
   .battery-low { color: var(--red); }
+  .signal-bar {
+    display: inline-block;
+    width: 4px;
+    margin-right: 2px;
+    background: var(--border);
+    border-radius: 1px;
+    vertical-align: bottom;
+  }
+  .signal-bar.active { background: var(--green); }
+  .signal-bar.active.weak { background: var(--yellow); }
+  .signal-bar.active.none { background: var(--red); }
+  .status-flags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .flag {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+  .flag.ok {
+    background: rgba(52, 211, 153, 0.12);
+    color: var(--green);
+  }
+  .flag.warn {
+    background: rgba(251, 191, 36, 0.15);
+    color: var(--yellow);
+  }
+  .flag.error {
+    background: rgba(248, 113, 113, 0.15);
+    color: var(--red);
+  }
+  .flag.dim {
+    background: var(--bg);
+    color: var(--text-dim);
+  }
   .mode-badge {
     display: inline-block;
     padding: 4px 10px;
@@ -252,12 +291,43 @@
           <div class="telem-value"><span id="satellites">--</span></div>
         </div>
         <div class="telem-item">
+          <div class="telem-label">Signal</div>
+          <div class="telem-value"><span id="signal-bars"></span></div>
+        </div>
+        <div class="telem-item">
           <div class="telem-label">Latitude</div>
           <div class="telem-value" style="font-size:14px"><span id="lat">--</span></div>
         </div>
         <div class="telem-item">
           <div class="telem-label">Longitude</div>
           <div class="telem-value" style="font-size:14px"><span id="lon">--</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="telem-section">
+      <h2>Status</h2>
+      <div class="status-flags" id="status-flags"></div>
+    </div>
+
+    <div class="telem-section">
+      <h2>Geofence</h2>
+      <div class="telem-grid">
+        <div class="telem-item">
+          <div class="telem-label">RTH Alt</div>
+          <div class="telem-value"><span id="return-alt">--</span><span class="telem-unit">m</span></div>
+        </div>
+        <div class="telem-item">
+          <div class="telem-label">Max Alt</div>
+          <div class="telem-value"><span id="fence-alt">--</span><span class="telem-unit">m</span></div>
+        </div>
+        <div class="telem-item">
+          <div class="telem-label">Max Dist</div>
+          <div class="telem-value"><span id="fence-dist">--</span><span class="telem-unit">m</span></div>
+        </div>
+        <div class="telem-item">
+          <div class="telem-label">Home Set</div>
+          <div class="telem-value"><span id="return-point">--</span></div>
         </div>
       </div>
     </div>
@@ -343,6 +413,42 @@ function render() {
     $('satellites').textContent = t.satellites;
     $('lat').textContent = t.lat ? t.lat.toFixed(7) : '--';
     $('lon').textContent = t.lon ? t.lon.toFixed(7) : '--';
+
+    // Signal strength bars (0-7)
+    const sig = t.signal_strength || 0;
+    const barHeights = [6, 10, 14, 18, 22, 26, 30];
+    let barsHtml = '';
+    for (let i = 0; i < 7; i++) {
+      const active = i < sig;
+      const cls = active ? (sig <= 2 ? 'active none' : sig <= 4 ? 'active weak' : 'active') : '';
+      barsHtml += '<span class="signal-bar ' + cls + '" style="height:' + barHeights[i] + 'px"></span>';
+    }
+    $('signal-bars').innerHTML = barsHtml;
+
+    // Status flags
+    const flags = [];
+    if (t.recording) flags.push({text: 'REC', cls: 'ok'});
+    if (t.headless) flags.push({text: 'HEADLESS', cls: 'warn'});
+    if (t.return_point) flags.push({text: 'HOME SET', cls: 'ok'});
+    else flags.push({text: 'NO HOME', cls: 'dim'});
+    if (t.app_control) flags.push({text: 'APP CTRL', cls: 'ok'});
+    if (t.initialized) flags.push({text: 'INIT', cls: 'ok'});
+    else flags.push({text: 'NOT INIT', cls: 'warn'});
+    if (t.low_battery) flags.push({text: 'LOW BAT', cls: 'warn'});
+    if (t.critical_battery) flags.push({text: 'CRIT BAT', cls: 'error'});
+    if (t.gyro_error) flags.push({text: 'GYRO ERR', cls: 'error'});
+    if (t.baro_error) flags.push({text: 'BARO ERR', cls: 'error'});
+    if (t.compass_error) flags.push({text: 'COMPASS ERR', cls: 'error'});
+    if (t.gps_error) flags.push({text: 'GPS ERR', cls: 'error'});
+    $('status-flags').innerHTML = flags.map(function(f) {
+      return '<span class="flag ' + f.cls + '">' + f.text + '</span>';
+    }).join('');
+
+    // Geofence
+    $('return-alt').textContent = t.return_alt;
+    $('fence-alt').textContent = t.fence_alt;
+    $('fence-dist').textContent = t.fence_dist;
+    $('return-point').textContent = t.return_point ? 'Yes' : 'No';
   }
 }
 
