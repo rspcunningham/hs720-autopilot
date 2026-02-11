@@ -43,6 +43,7 @@ class VideoReceiver:
         """Register with relay for video and start receiving."""
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 32768)
         self._sock.settimeout(2)
 
         # Send registration packet to relay — tells it our IP and port

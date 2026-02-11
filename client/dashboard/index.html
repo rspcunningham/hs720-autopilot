@@ -66,10 +66,11 @@
     justify-content: center;
     overflow: hidden;
   }
-  .video-panel video {
+  .video-panel canvas {
     width: 100%;
     height: 100%;
     object-fit: contain;
+    transform: scaleY(-1);
   }
   .video-overlay {
     position: absolute;
@@ -78,6 +79,19 @@
     pointer-events: none;
   }
   .video-overlay.hidden { display: none; }
+  .fps-counter {
+    position: absolute;
+    top: 8px; left: 10px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.7);
+    background: rgba(0, 0, 0, 0.5);
+    padding: 3px 7px;
+    border-radius: 3px;
+    z-index: 10;
+    pointer-events: none;
+    font-variant-numeric: tabular-nums;
+    display: none;
+  }
   .gateway-banner {
     position: absolute;
     bottom: 0; left: 0; right: 0;
@@ -188,7 +202,8 @@
   <div class="video-panel">
     <span class="video-overlay" id="video-overlay">No video feed</span>
     <div class="gateway-banner" id="gateway-banner"></div>
-    <video id="video-feed" autoplay muted playsinline></video>
+    <div class="fps-counter" id="fps-counter"></div>
+    <canvas id="video-canvas"></canvas>
   </div>
 
   <div class="telemetry-panel">
@@ -258,7 +273,7 @@ const state = {
   sse: true,           // SSE connected
   telemetry: null,     // latest telemetry object, or null
   telemetryAt: 0,      // Date.now() of last telemetry
-  videoActive: false,   // MSE is receiving frames
+  videoActive: false,  // WebCodecs is receiving frames
 };
 
 const GATEWAY_LABELS = {
@@ -355,86 +370,161 @@ setInterval(render, 1000);
 // Initial render (default state)
 render();
 
-// ---- H.264 Video via MSE ----
-(async function() {
-  if (!window.MediaSource) {
-    $('video-overlay').textContent = 'MediaSource not supported';
+// ---- H.264 Video via WebSocket + WebCodecs ----
+(function() {
+  if (typeof VideoDecoder === 'undefined') {
+    console.error('[video] VideoDecoder API not available');
+    $('video-overlay').textContent = 'WebCodecs not supported — use Chrome/Edge';
     return;
   }
 
-  let codec = 'avc1.42E01E';
-  try {
-    const s = await fetch('/status').then(r => r.json());
-    if (s.codec) codec = s.codec;
-  } catch(e) {}
+  const canvas = $('video-canvas');
+  const ctx = canvas.getContext('2d');
+  let decoder = null;
+  let currentCodec = '';  // saved for reconfiguration after reset
+  let frameCount = 0;
+  let framesDecoded = 0;
+  let framesDropped = 0;
+  const fpsSamples = [];
+  let lastFrameTime = 0;
+  const fpsEl = $('fps-counter');
 
-  let mime = 'video/mp4; codecs="' + codec + '"';
-  if (!MediaSource.isTypeSupported(mime)) {
-    for (const c of ['avc1.42E01E','avc1.42001E','avc1.4D401E','avc1.64001E','avc1.640029']) {
-      const t = 'video/mp4; codecs="' + c + '"';
-      if (MediaSource.isTypeSupported(t)) { mime = t; break; }
-    }
-  }
+  // Decoder config: prefer-software avoids Main profile reorder buffer
+  // (hardware decoders buffer 4+ frames waiting for B-frames that never come)
+  const decoderConfig = {
+    optimizeForLatency: true,
+    hardwareAcceleration: 'prefer-software',
+  };
 
-  const video = $('video-feed');
-  const ms = new MediaSource();
-  video.src = URL.createObjectURL(ms);
-  await new Promise(r => ms.addEventListener('sourceopen', r, {once: true}));
-
-  const sb = ms.addSourceBuffer(mime);
-  sb.mode = 'segments';
-
-  const response = await fetch('/video');
-  const reader = response.body.getReader();
-
-  state.videoActive = true;
-  render();
-
-  const pending = [];
-  let appending = false;
-
-  function tryAppend() {
-    if (appending || pending.length === 0 || sb.updating) return;
-    let total = 0;
-    for (const c of pending) total += c.length;
-    const merged = new Uint8Array(total);
-    let off = 0;
-    for (const c of pending) { merged.set(c, off); off += c.length; }
-    pending.length = 0;
-    appending = true;
-    try { sb.appendBuffer(merged); }
-    catch (e) { console.error('appendBuffer:', e); appending = false; }
-  }
-
-  sb.addEventListener('updateend', () => {
-    appending = false;
-    if (!sb.updating && sb.buffered.length > 0) {
-      const start = sb.buffered.start(0);
-      const end = sb.buffered.end(sb.buffered.length - 1);
-      if (end - start > 15) {
-        try { sb.remove(start, end - 5); return; } catch(e) {}
+  function createDecoder() {
+    return new VideoDecoder({
+      output: function(frame) {
+        framesDecoded++;
+        if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
+          canvas.width = frame.displayWidth;
+          canvas.height = frame.displayHeight;
+          console.log('[video] Canvas: ' + canvas.width + 'x' + canvas.height);
+        }
+        ctx.drawImage(frame, 0, 0);
+        frame.close();
+        // FPS tracking
+        const now = performance.now();
+        if (lastFrameTime) fpsSamples.push(now - lastFrameTime);
+        lastFrameTime = now;
+        if (fpsSamples.length > 30) fpsSamples.shift();
+        if (fpsSamples.length >= 2) {
+          const avg = fpsSamples.reduce((a, b) => a + b) / fpsSamples.length;
+          const fps = 1000 / avg;
+          fpsEl.style.display = 'block';
+          let text = fps.toFixed(0) + ' fps';
+          if (framesDropped > 0) text += ' (' + framesDropped + ' dropped)';
+          fpsEl.textContent = text;
+        }
+        if (!state.videoActive) {
+          state.videoActive = true;
+          console.log('[video] First frame rendered');
+          render();
+        }
+      },
+      error: function(err) {
+        console.error('[video] Decoder error:', err.message || err);
+        // Decoder is permanently broken after error — recreate on next keyframe
+        try { decoder.close(); } catch(_) {}
+        decoder = null;
       }
-    }
-    tryAppend();
-  });
-
-  // Live edge tracking
-  setInterval(() => {
-    if (sb.buffered.length > 0 && !video.seeking) {
-      const live = sb.buffered.end(sb.buffered.length - 1);
-      if (live - video.currentTime > 2) video.currentTime = live - 0.3;
-    }
-  }, 1000);
-
-  while (true) {
-    const {done, value} = await reader.read();
-    if (done) break;
-    pending.push(value);
-    tryAppend();
+    });
   }
 
-  state.videoActive = false;
-  render();
+  function connectVideo() {
+    const url = 'ws://' + location.hostname + ':__WS_PORT__';
+    console.log('[video] Connecting to', url);
+    const ws = new WebSocket(url);
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = function() {
+      console.log('[video] WebSocket connected');
+    };
+
+    ws.onmessage = function(e) {
+      const buf = new Uint8Array(e.data);
+      if (buf.length < 2) return;
+      const type = buf[0];
+      const payload = buf.slice(1);
+
+      if (type === 0x01) {
+        // Config: codec string (UTF-8) + \x00 + avcC
+        const nullIdx = payload.indexOf(0);
+        if (nullIdx < 0) return;
+        currentCodec = new TextDecoder().decode(payload.slice(0, nullIdx));
+        console.log('[video] Config: codec=' + currentCodec + ', avcC=' + payload.slice(nullIdx + 1).length + 'B');
+
+        if (decoder) { try { decoder.close(); } catch(_) {} }
+        frameCount = 0;
+        framesDecoded = 0;
+        framesDropped = 0;
+        fpsSamples.length = 0;
+        lastFrameTime = 0;
+        decoder = createDecoder();
+        // No description — Annex B mode (start code-delimited)
+        // SPS+PPS prepended to keyframes in the stream
+        try {
+          decoder.configure(Object.assign({ codec: currentCodec }, decoderConfig));
+          console.log('[video] Decoder configured (Annex B, software), state=' + decoder.state);
+        } catch (err) {
+          console.error('[video] configure() failed:', err.message || err);
+        }
+
+      } else if (type === 0x02 || type === 0x03) {
+        const isKey = type === 0x02;
+
+        // On keyframe: if decoder is broken or backed up, reset and reconfigure
+        // (scrcpy pattern — bounds maximum latency to one keyframe interval)
+        if (isKey && decoder && decoder.state === 'configured' && decoder.decodeQueueSize > 0) {
+          const skipped = decoder.decodeQueueSize;
+          framesDropped += skipped;
+          decoder.reset();
+          decoder.configure(Object.assign({ codec: currentCodec }, decoderConfig));
+          console.log('[video] Decoder reset on keyframe (skipped ' + skipped + ' queued)');
+        }
+
+        // If decoder died from error, recreate on keyframe
+        if (isKey && (!decoder || decoder.state !== 'configured')) {
+          decoder = createDecoder();
+          decoder.configure(Object.assign({ codec: currentCodec }, decoderConfig));
+          console.log('[video] Decoder recreated on keyframe');
+        }
+
+        if (!decoder || decoder.state !== 'configured') return;
+        const kind = isKey ? 'key' : 'delta';
+        const chunk = new EncodedVideoChunk({
+          type: kind,
+          timestamp: frameCount * 40000,  // 25fps = 40ms per frame in µs
+          data: payload,
+        });
+        frameCount++;
+        if (frameCount <= 3 || frameCount % 250 === 0) {
+          console.log('[video] Chunk #' + frameCount + ': ' + kind + ' ' + payload.length + 'B, queueSize=' + decoder.decodeQueueSize);
+        }
+        try {
+          decoder.decode(chunk);
+        } catch (err) {
+          console.error('[video] decode() threw:', err.message || err);
+        }
+      }
+    };
+
+    ws.onclose = function(e) {
+      console.log('[video] WebSocket closed: code=' + e.code + ' reason=' + (e.reason || '(none)'));
+      state.videoActive = false;
+      fpsEl.style.display = 'none';
+      render();
+      setTimeout(connectVideo, 2000);
+    };
+
+    ws.onerror = function() {};
+  }
+
+  connectVideo();
 })();
 </script>
 

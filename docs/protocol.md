@@ -30,7 +30,7 @@ The drone has **two independent control paths**:
 |---------|----------|-----------|---------|--------|
 | **TCP 18000** | GOL framing | Bidirectional | Auth, commands, config, telemetry relay | **WORKING** |
 | **UDP 17000** | GOL-wrapped 0xAA | Bidirectional | Serial data uplink/downlink to FC | **WORKING** |
-| **UDP 16000** | `\x00GOL` framing | Drone → App | H.264 video stream (1280x720, ~2.5Mbps) | Receiving not yet implemented |
+| **UDP 16000** | `\x00GOL` framing | Drone → App | H.264 video stream (1280x720, ~330kbps) | **WORKING** |
 | TCP 8856 | Unknown | Unknown | Unknown (accepts connections, always silent) | Dead end |
 | TCP 23 | Telnet | Interactive | Linux login (password unknown) | Dead end |
 
@@ -60,7 +60,33 @@ Payload: [PayLen bytes]
 Footer:  \xffGOL  (4 bytes)
 ```
 
-Total overhead: 20 bytes per frame. Video on UDP 16000 uses `\x00GOL` header.
+Total overhead: 20 bytes per frame.
+
+### Video GOL Framing (UDP 16000)
+
+Video packets use `\x00GOL` header (not `\x01GOL`) with an additional 61-byte sub-header:
+
+```
+Offset  Size  Field
+0-3     4     Header: \x00GOL
+4-7     4     Padding (zeros)
+8-11    4     Payload length (uint32 LE) — includes sub-header + H.264 + footer
+12-15   4     Padding (zeros)
+16-72   57    Video sub-header
+73-76   4     H.264 data length (uint32 LE)
+77-N    N     H.264 data (N = h264_length)
+N..N+3  4     Footer: \xFFGOL
+```
+
+Sub-header fields (offsets relative to byte 16):
+- `[0:4]` u32le: frame counter (incrementing)
+- `[4:8]` u32le: timestamp
+- `[12:16]` u32le: width (1280)
+- `[16:20]` u32le: height (720)
+- `[24:28]` u32le: chunk count
+- `[32:36]` u32le: chunk index within frame
+
+Most packets are 1400 bytes total (1319 bytes H.264). H.264 stream is Main profile, 1280x720, yuvj420p, ~25fps. IDR + SPS/PPS every ~3 seconds.
 
 ## 0xAA Serial Packet Format
 
