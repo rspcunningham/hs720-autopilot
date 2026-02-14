@@ -13,7 +13,10 @@ from .protocol import (
     GOL_RELAY_STATUS, GOL_SRL_DATA, GOL_SP_CFG, MsgId, START_BYTE,
     gol_unwrap, gol_wrap,
 )
-from .telemetry import FlightState, parse_telemetry
+from .telemetry import (
+    FlightState, ControlState, PTZState, DeviceInfo,
+    parse_telemetry, parse_control_info, parse_ptz_info, parse_device_info,
+)
 
 
 class Connection:
@@ -26,16 +29,37 @@ class Connection:
         self._running = False
         self._recv_thread: threading.Thread | None = None
         self._state: FlightState | None = None
+        self._control: ControlState | None = None
+        self._ptz: PTZState | None = None
+        self._device: DeviceInfo | None = None
         self._lock = threading.Lock()
         self.relay_state: str = "unknown"
-        self.on_telemetry = None   # callback(FlightState)
-        self.on_raw_gol = None     # callback(cmd_id, rwbit, payload)
-        self.on_relay_status = None  # callback(dict)
+        self.on_telemetry = None      # callback(FlightState)
+        self.on_control_info = None   # callback(ControlState)
+        self.on_ptz_info = None       # callback(PTZState)
+        self.on_device_info = None    # callback(DeviceInfo)
+        self.on_raw_gol = None        # callback(cmd_id, rwbit, payload)
+        self.on_relay_status = None   # callback(dict)
 
     @property
     def state(self) -> FlightState | None:
         with self._lock:
             return self._state
+
+    @property
+    def control(self) -> ControlState | None:
+        with self._lock:
+            return self._control
+
+    @property
+    def ptz(self) -> PTZState | None:
+        with self._lock:
+            return self._ptz
+
+    @property
+    def device(self) -> DeviceInfo | None:
+        with self._lock:
+            return self._device
 
     @property
     def connected(self) -> bool:
@@ -180,8 +204,44 @@ class Connection:
                     self.on_telemetry(state)
 
         elif msg_id == MsgId.ControlInfo:
-            if self.logger:
-                self.logger.log("control_info", raw_hex=data.hex())
+            ctrl = parse_control_info(data)
+            if ctrl:
+                with self._lock:
+                    self._control = ctrl
+                if self.logger:
+                    self.logger.log("control_info",
+                                    lock=ctrl.lock, unlock=ctrl.unlock,
+                                    rec=ctrl.rec, photo=ctrl.photo,
+                                    rf_signal=ctrl.rf_signal, battery=ctrl.battery,
+                                    version=ctrl.version, raw_hex=data.hex())
+                if self.on_control_info:
+                    self.on_control_info(ctrl)
+
+        elif msg_id == MsgId.PTZInFo:
+            ptz = parse_ptz_info(data)
+            if ptz:
+                with self._lock:
+                    self._ptz = ptz
+                if self.logger:
+                    self.logger.log("ptz_info",
+                                    status=ptz.status_name,
+                                    gyro_error=ptz.gyro_error,
+                                    ptz_error=ptz.ptz_error,
+                                    calibrating=ptz.calibrating,
+                                    raw_hex=data.hex())
+                if self.on_ptz_info:
+                    self.on_ptz_info(ptz)
+
+        elif msg_id == MsgId.DeviceId:
+            dev = parse_device_info(data)
+            if dev:
+                with self._lock:
+                    self._device = dev
+                if self.logger:
+                    self.logger.log("device_info",
+                                    model=dev.model, raw_hex=dev.raw_hex)
+                if self.on_device_info:
+                    self.on_device_info(dev)
 
         else:
             if self.logger:

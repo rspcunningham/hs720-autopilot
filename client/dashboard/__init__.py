@@ -62,13 +62,22 @@ class Dashboard:
         # Latest state
         self._latest_telemetry = None
         self._latest_relay = None
+        self._latest_control = None
+        self._latest_ptz = None
+        self._latest_device = None
 
         # Chain callbacks
         self._orig_on_telemetry = conn.on_telemetry
         self._orig_on_relay_status = conn.on_relay_status
+        self._orig_on_control_info = conn.on_control_info
+        self._orig_on_ptz_info = conn.on_ptz_info
+        self._orig_on_device_info = conn.on_device_info
         self._orig_on_packet = video.on_packet
         conn.on_telemetry = self._on_telemetry
         conn.on_relay_status = self._on_relay_status
+        conn.on_control_info = self._on_control_info
+        conn.on_ptz_info = self._on_ptz_info
+        conn.on_device_info = self._on_device_info
         video.on_packet = self._on_packet
 
     def serve(self, port: int = 8080, ws_port: int = 8081):
@@ -99,6 +108,9 @@ class Dashboard:
             self._ws_server = None
         self._conn.on_telemetry = self._orig_on_telemetry
         self._conn.on_relay_status = self._orig_on_relay_status
+        self._conn.on_control_info = self._orig_on_control_info
+        self._conn.on_ptz_info = self._orig_on_ptz_info
+        self._conn.on_device_info = self._orig_on_device_info
         self._video.on_packet = self._orig_on_packet
         print("[*] Dashboard stopped")
 
@@ -159,6 +171,28 @@ class Dashboard:
         self._push_sse(f"event: relay\ndata: {json.dumps(status)}\n\n")
         if self._orig_on_relay_status:
             self._orig_on_relay_status(status)
+
+    def _on_control_info(self, ctrl):
+        d = asdict(ctrl)
+        self._latest_control = d
+        self._push_sse(f"event: control\ndata: {json.dumps(d)}\n\n")
+        if self._orig_on_control_info:
+            self._orig_on_control_info(ctrl)
+
+    def _on_ptz_info(self, ptz):
+        d = asdict(ptz)
+        d["status_name"] = ptz.status_name
+        self._latest_ptz = d
+        self._push_sse(f"event: ptz\ndata: {json.dumps(d)}\n\n")
+        if self._orig_on_ptz_info:
+            self._orig_on_ptz_info(ptz)
+
+    def _on_device_info(self, dev):
+        d = asdict(dev)
+        self._latest_device = d
+        self._push_sse(f"event: device\ndata: {json.dumps(d)}\n\n")
+        if self._orig_on_device_info:
+            self._orig_on_device_info(dev)
 
     def _on_packet(self, data: bytes):
         # GOL video packet: \x00GOL(16) + sub-header(57) + h264_len(4) + h264 + \xFFGOL(4)
@@ -335,6 +369,15 @@ def _make_handler(dash: Dashboard):
                 if dash._latest_telemetry:
                     self.wfile.write(
                         f"data: {json.dumps(dash._latest_telemetry)}\n\n".encode())
+                if dash._latest_device:
+                    self.wfile.write(
+                        f"event: device\ndata: {json.dumps(dash._latest_device)}\n\n".encode())
+                if dash._latest_control:
+                    self.wfile.write(
+                        f"event: control\ndata: {json.dumps(dash._latest_control)}\n\n".encode())
+                if dash._latest_ptz:
+                    self.wfile.write(
+                        f"event: ptz\ndata: {json.dumps(dash._latest_ptz)}\n\n".encode())
                 self.wfile.flush()
                 last_ka = time.time()
                 while True:
@@ -356,6 +399,9 @@ def _make_handler(dash: Dashboard):
             body = json.dumps({
                 "telemetry": dash._latest_telemetry,
                 "relay": dash._latest_relay,
+                "control": dash._latest_control,
+                "ptz": dash._latest_ptz,
+                "device": dash._latest_device,
             }).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")

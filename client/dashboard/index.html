@@ -230,7 +230,7 @@
 <body>
 
 <div class="topbar">
-  <h1>HS720 Dashboard</h1>
+  <h1><span id="device-model">HS720</span> Dashboard</h1>
   <div class="relay-status">
     <div class="relay-dot" id="relay-dot"></div>
     <span id="relay-text">Connecting...</span>
@@ -332,6 +332,34 @@
       </div>
     </div>
 
+    <div class="telem-section" id="controller-section">
+      <h2>Controller</h2>
+      <div class="telem-grid">
+        <div class="telem-item">
+          <div class="telem-label">RF Signal</div>
+          <div class="telem-value"><span id="rc-signal">--</span><span class="telem-unit">/15</span></div>
+        </div>
+        <div class="telem-item">
+          <div class="telem-label">RC Battery</div>
+          <div class="telem-value"><span id="rc-battery">--</span><span class="telem-unit">/15</span></div>
+        </div>
+        <div class="telem-item">
+          <div class="telem-label">FW Version</div>
+          <div class="telem-value" style="font-size:14px"><span id="rc-version">--</span></div>
+        </div>
+        <div class="telem-item">
+          <div class="telem-label">State</div>
+          <div class="telem-value" style="font-size:14px"><span id="rc-state">--</span></div>
+        </div>
+      </div>
+      <div class="status-flags" id="rc-flags" style="margin-top:8px"></div>
+    </div>
+
+    <div class="telem-section" id="ptz-section">
+      <h2>Gimbal</h2>
+      <div class="status-flags" id="ptz-flags"></div>
+    </div>
+
     <div class="last-update">Last update: <span id="last-update">--</span></div>
   </div>
 </div>
@@ -344,6 +372,9 @@ const state = {
   telemetry: null,     // latest telemetry object, or null
   telemetryAt: 0,      // Date.now() of last telemetry
   videoActive: false,  // WebCodecs is receiving frames
+  control: null,       // latest ControlInfo, or null
+  ptz: null,           // latest PTZInFo, or null
+  device: null,        // latest DeviceInfo, or null
 };
 
 const GATEWAY_LABELS = {
@@ -450,6 +481,54 @@ function render() {
     $('fence-dist').textContent = t.fence_dist;
     $('return-point').textContent = t.return_point ? 'Yes' : 'No';
   }
+
+  // Device model
+  if (state.device) {
+    $('device-model').textContent = state.device.model || 'HS720';
+  }
+
+  // Controller (ControlInfo 0x30)
+  const c = state.control;
+  if (c) {
+    $('rc-signal').textContent = c.rf_signal;
+    $('rc-battery').textContent = c.battery;
+    $('rc-version').textContent = c.version || '--';
+    const parts = [];
+    if (c.lock) parts.push('LOCKED');
+    if (c.unlock) parts.push('UNLOCKED');
+    if (c.up) parts.push('UP');
+    if (c.back) parts.push('RTH');
+    $('rc-state').textContent = parts.length ? parts.join(' ') : 'Idle';
+    const rcFlags = [];
+    if (c.rec) rcFlags.push({text: 'REC', cls: 'ok'});
+    if (c.photo) rcFlags.push({text: 'PHOTO', cls: 'ok'});
+    if (c.headless) rcFlags.push({text: 'HEADLESS', cls: 'warn'});
+    if (c.light) rcFlags.push({text: 'LIGHT', cls: 'ok'});
+    if (c.gps) rcFlags.push({text: 'GPS FIX', cls: 'ok'});
+    else rcFlags.push({text: 'NO GPS', cls: 'dim'});
+    if (c.wifi) rcFlags.push({text: 'WIFI', cls: 'ok'});
+    $('rc-flags').innerHTML = rcFlags.map(function(f) {
+      return '<span class="flag ' + f.cls + '">' + f.text + '</span>';
+    }).join('');
+  } else {
+    $('rc-flags').innerHTML = '<span class="flag dim">NO DATA</span>';
+  }
+
+  // PTZ / Gimbal
+  const p = state.ptz;
+  if (p) {
+    const ptzFlags = [];
+    if (p.ptz_error) ptzFlags.push({text: 'PTZ ERROR', cls: 'error'});
+    else if (p.calibrating) ptzFlags.push({text: 'CALIBRATING', cls: 'warn'});
+    else if (p.gyro_error) ptzFlags.push({text: 'GYRO ERROR', cls: 'error'});
+    else if (p.gyro_checking) ptzFlags.push({text: 'CHECKING', cls: 'warn'});
+    else ptzFlags.push({text: 'NORMAL', cls: 'ok'});
+    $('ptz-flags').innerHTML = ptzFlags.map(function(f) {
+      return '<span class="flag ' + f.cls + '">' + f.text + '</span>';
+    }).join('');
+  } else {
+    $('ptz-flags').innerHTML = '<span class="flag dim">NO DATA</span>';
+  }
 }
 
 // ---- Events (update state, then render) ----
@@ -464,6 +543,21 @@ es.onmessage = function(e) {
 
 es.addEventListener('relay', function(e) {
   state.relay = JSON.parse(e.data).state || 'unknown';
+  render();
+});
+
+es.addEventListener('control', function(e) {
+  state.control = JSON.parse(e.data);
+  render();
+});
+
+es.addEventListener('ptz', function(e) {
+  state.ptz = JSON.parse(e.data);
+  render();
+});
+
+es.addEventListener('device', function(e) {
+  state.device = JSON.parse(e.data);
   render();
 });
 

@@ -60,6 +60,7 @@ class MsgId:
     SignOutFlyCmd   = 0x51
     SetUpFlyPtzCmd  = 0x52
     SignOutUpFlyCmd = 0x53
+    DeviceId        = 0x95
 
 
 # SetCmd sub-commands
